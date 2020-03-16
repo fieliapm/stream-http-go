@@ -24,12 +24,15 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
 const (
 	chunkSize int = 0x1 << 16
 )
+
+// timeout IO
 
 type TimeoutReader struct {
 	reader  io.Reader
@@ -188,10 +191,25 @@ func DoRequest(ctx context.Context, client *http.Client, method string, url stri
 	defer resp.Body.Close()
 
 	if conf.responseBody != nil {
+		var nWritten int64
 		if timer != nil {
-			_, err = TimeoutCopy(conf.responseBody, resp.Body, timer, conf.timeout)
+			nWritten, err = TimeoutCopy(conf.responseBody, resp.Body, timer, conf.timeout)
 		} else {
-			_, err = io.Copy(conf.responseBody, resp.Body)
+			nWritten, err = io.Copy(conf.responseBody, resp.Body)
+		}
+
+		contentLengthString := resp.Header.Get("Content-Length")
+		if len(contentLengthString) > 0 {
+			var contentLength int64
+			contentLength, err = strconv.ParseInt(contentLengthString, 10, 64)
+			if err != nil {
+				return
+			}
+
+			if contentLength != nWritten {
+				err = io.ErrUnexpectedEOF
+				return
+			}
 		}
 	}
 

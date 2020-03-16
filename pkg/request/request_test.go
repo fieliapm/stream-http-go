@@ -27,6 +27,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -37,53 +39,78 @@ import (
 )
 
 const (
-	testPort   int           = 8090
-	timeout    time.Duration = 500 * time.Millisecond
-	statusCode int           = 200
-	bodySize   int           = 512 * 1024 * 1024
+	testPort           int           = 8090
+	testSucceedTimeout time.Duration = 500 * time.Millisecond
+	testFailTimeout    time.Duration = 50 * time.Millisecond
+	testNoTimeout      time.Duration = 0
+	statusCode         int           = 200
+	bodySize           int           = 512 * 1024 * 1024
 )
 
-func handleFunc(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintln(os.Stderr, "[server] receiving request")
-	var reqBody bytes.Buffer
-	io.Copy(&reqBody, req.Body)
+var (
+	reqBytes []byte
+)
 
-	fmt.Fprintln(os.Stderr, "[server] sending response")
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.WriteHeader(statusCode)
-	io.Copy(w, &reqBody)
+func createHandleFunc(hasContentLength bool) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		defer func() {
+			fmt.Fprintln(os.Stderr, "[server] request complete")
+			runtime.GC()
+		}()
 
-	fmt.Fprintln(os.Stderr, "[server] request complete")
+		fmt.Fprintln(os.Stderr, "[server] receiving request")
+		var reqBody bytes.Buffer
+		io.Copy(&reqBody, req.Body)
+
+		fmt.Fprintf(os.Stderr, "[server] sending response with length %d\n", reqBody.Len())
+		w.Header().Set("Content-Type", "application/octet-stream")
+		if hasContentLength {
+			w.Header().Set("Content-Length", strconv.Itoa(reqBody.Len()))
+		}
+		w.WriteHeader(statusCode)
+		io.Copy(w, &reqBody)
+	}
 }
 
 func runServer() *http.Server {
 	fmt.Fprintln(os.Stderr, "[server] server starting")
 
 	serveMux := http.NewServeMux()
-	serveMux.HandleFunc("/", handleFunc)
+	serveMux.HandleFunc("/ping-pong/without-content-length", createHandleFunc(false))
+	serveMux.HandleFunc("/ping-pong/with-content-length", createHandleFunc(true))
 	server := &http.Server{Addr: fmt.Sprintf(":%d", testPort), Handler: serveMux}
 
 	go func() {
+		fmt.Fprintln(os.Stderr, "[server] server started")
 		server.ListenAndServe()
+		fmt.Fprintln(os.Stderr, "[server] server shutted down")
 	}()
 
 	// wait for server started
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 
-	fmt.Fprintln(os.Stderr, "[server] server started")
 	return server
 }
 
-func TestRequest(t *testing.T) {
+func TestMain(m *testing.M) {
 	server := runServer()
-	defer func() {
-		fmt.Fprintln(os.Stderr, "[server] server shutdown")
-		server.Shutdown(context.Background())
-	}()
 
 	fmt.Fprintln(os.Stderr, "[client] generating binary")
-	reqBytes := make([]byte, bodySize)
+	reqBytes = make([]byte, bodySize)
 	rand.Read(reqBytes)
+
+	exitCode := m.Run()
+
+	fmt.Fprintln(os.Stderr, "[server] server shutting down")
+	server.Shutdown(context.Background())
+
+	// wait for server shutted down
+	time.Sleep(250 * time.Millisecond)
+
+	os.Exit(exitCode)
+}
+
+func testPost(t *testing.T, timeout time.Duration, withContentLength bool, expectError bool) {
 	reqBody := bytes.NewReader(reqBytes)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -92,13 +119,50 @@ func TestRequest(t *testing.T) {
 	client := http.DefaultClient
 
 	fmt.Fprintln(os.Stderr, "[client] begin request")
+
+	var s string
+	if withContentLength {
+		s = "with"
+	} else {
+		s = "without"
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d/ping-pong/%s-content-length", testPort, s)
+
 	var respBody bytes.Buffer
-	resp, err := request.DoRequest(ctx, client, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/", testPort),
-		request.RequestBody(reqBody), request.ResponseBody(&respBody), request.Timeout(timeout, cancel))
+	var resp *http.Response
+	var err error
+	if timeout > time.Duration(0) {
+		resp, err = request.DoRequest(ctx, client, http.MethodPost, url,
+			request.RequestBody(reqBody), request.ResponseBody(&respBody), request.Timeout(timeout, cancel))
+	} else {
+		resp, err = request.DoRequest(ctx, client, http.MethodPost, url,
+			request.RequestBody(reqBody), request.ResponseBody(&respBody))
+	}
+
 	fmt.Fprintln(os.Stderr, "[client] end request")
 
-	require.NoError(t, err)
-	assert.Equal(t, statusCode, resp.StatusCode)
-	cmpResult := bytes.Compare(reqBytes, respBody.Bytes())
-	assert.Equal(t, 0, cmpResult)
+	if expectError {
+		require.Error(t, err)
+	} else {
+		require.NoError(t, err)
+		assert.Equal(t, statusCode, resp.StatusCode)
+		cmpResult := bytes.Compare(reqBytes, respBody.Bytes())
+		assert.Equal(t, 0, cmpResult)
+	}
+}
+
+func TestPostWithContentLength(t *testing.T) {
+	testPost(t, testSucceedTimeout, true, false)
+}
+
+func TestPostWithoutContentLength(t *testing.T) {
+	testPost(t, testSucceedTimeout, false, false)
+}
+
+func TestPostWithFailTimeout(t *testing.T) {
+	testPost(t, testFailTimeout, true, true)
+}
+
+func TestPostWithoutTimeout(t *testing.T) {
+	testPost(t, testNoTimeout, true, false)
 }
