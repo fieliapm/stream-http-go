@@ -39,7 +39,7 @@ import (
 )
 
 const (
-	testPort           int           = 8090
+	testPort           int           = 65535
 	testSucceedTimeout time.Duration = 500 * time.Millisecond
 	testFailTimeout    time.Duration = 50 * time.Millisecond
 	testNoTimeout      time.Duration = 0
