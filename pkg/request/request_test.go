@@ -43,7 +43,7 @@ const (
 	testSucceedTimeout time.Duration = 500 * time.Millisecond
 	testFailTimeout    time.Duration = 50 * time.Millisecond
 	testNoTimeout      time.Duration = 0
-	statusCode         int           = 200
+	statusCode         int           = http.StatusOK
 	bodySize           int           = 512 * 1024 * 1024
 )
 
