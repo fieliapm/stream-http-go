@@ -23,7 +23,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 )
@@ -90,38 +89,19 @@ func TimeoutCopy(writer io.Writer, reader io.Reader, timer *time.Timer, timeout 
 
 // Option
 
+type RequestModFunc func(*http.Request)
+
 type config struct {
-	header       http.Header
-	query        url.Values
-	requestBody  io.Reader
-	responseBody io.Writer
-	timeout      time.Duration
-	timeoutFunc  func()
+	requestModFunc RequestModFunc
+	timeout        time.Duration
+	timeoutFunc    func()
 }
 
 type Option func(conf *config)
 
-func Header(header http.Header) Option {
+func RequestMod(requestModFunc RequestModFunc) Option {
 	return func(conf *config) {
-		conf.header = header
-	}
-}
-
-func Query(query url.Values) Option {
-	return func(conf *config) {
-		conf.query = query
-	}
-}
-
-func RequestBody(requestBody io.Reader) Option {
-	return func(conf *config) {
-		conf.requestBody = requestBody
-	}
-}
-
-func ResponseBody(responseBody io.Writer) Option {
-	return func(conf *config) {
-		conf.responseBody = responseBody
+		conf.requestModFunc = requestModFunc
 	}
 }
 
@@ -134,7 +114,7 @@ func Timeout(timeout time.Duration, timeoutFunc func()) Option {
 
 // function
 
-func DoRequest(ctx context.Context, client *http.Client, method string, url string, opts ...Option) (resp *http.Response, err error) {
+func DoRequest(ctx context.Context, client *http.Client, method string, url string, requestBody io.Reader, responseBody io.Writer, opts ...Option) (resp *http.Response, err error) {
 	conf := config{}
 	for _, opt := range opts {
 		opt(&conf)
@@ -145,12 +125,9 @@ func DoRequest(ctx context.Context, client *http.Client, method string, url stri
 		timer = time.AfterFunc(conf.timeout, conf.timeoutFunc)
 	}
 
-	var requestBody io.Reader
-	if conf.requestBody != nil {
+	if requestBody != nil {
 		if timer != nil {
-			requestBody = NewTimeoutReader(conf.requestBody, timer, conf.timeout)
-		} else {
-			requestBody = conf.requestBody
+			requestBody = NewTimeoutReader(requestBody, timer, conf.timeout)
 		}
 	}
 
@@ -159,26 +136,10 @@ func DoRequest(ctx context.Context, client *http.Client, method string, url stri
 	if err != nil {
 		return
 	}
-
 	req = req.WithContext(ctx)
 
-	if conf.header != nil {
-		header := req.Header
-		for key, values := range conf.header {
-			for _, value := range values {
-				header.Add(key, value)
-			}
-		}
-	}
-
-	if conf.query != nil {
-		query := req.URL.Query()
-		for key, values := range conf.query {
-			for _, value := range values {
-				query.Add(key, value)
-			}
-		}
-		req.URL.RawQuery = query.Encode()
+	if conf.requestModFunc != nil {
+		conf.requestModFunc(req)
 	}
 
 	resp, err = client.Do(req)
@@ -190,25 +151,30 @@ func DoRequest(ctx context.Context, client *http.Client, method string, url stri
 	}
 	defer resp.Body.Close()
 
-	if conf.responseBody != nil {
+	if responseBody != nil {
 		var nWritten int64
 		if timer != nil {
-			nWritten, err = TimeoutCopy(conf.responseBody, resp.Body, timer, conf.timeout)
+			nWritten, err = TimeoutCopy(responseBody, resp.Body, timer, conf.timeout)
 		} else {
-			nWritten, err = io.Copy(conf.responseBody, resp.Body)
+			nWritten, err = io.Copy(responseBody, resp.Body)
+		}
+		if err != nil {
+			return
 		}
 
-		contentLengthString := resp.Header.Get("Content-Length")
-		if len(contentLengthString) > 0 {
-			var contentLength int64
-			contentLength, err = strconv.ParseInt(contentLengthString, 10, 64)
-			if err != nil {
-				return
-			}
+		if req.Method != http.MethodHead {
+			contentLengthString := resp.Header.Get("Content-Length")
+			if len(contentLengthString) > 0 {
+				var contentLength int64
+				contentLength, err = strconv.ParseInt(contentLengthString, 10, 64)
+				if err != nil {
+					return
+				}
 
-			if contentLength != nWritten {
-				err = io.ErrUnexpectedEOF
-				return
+				if contentLength != nWritten {
+					err = io.ErrUnexpectedEOF
+					return
+				}
 			}
 		}
 	}
