@@ -41,7 +41,7 @@ import (
 
 const (
 	testBodySize       int           = 512 * 1024 * 1024
-	testSucceedTimeout time.Duration = 500 * time.Millisecond
+	testSucceedTimeout time.Duration = 1000 * time.Millisecond
 	testFailTimeout    time.Duration = 100 * time.Millisecond
 	testNoTimeout      time.Duration = 0
 
@@ -176,7 +176,7 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 
 	fmt.Fprintln(os.Stderr, "[client] begin request")
 
-	url := fmt.Sprintf("http://127.0.0.1:%d/ping-pong", testPort)
+	urlString := fmt.Sprintf("http://127.0.0.1:%d/ping-pong", testPort)
 	requestMod := request.RequestMod(func(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer qawsedrftgyhujikolp")
 
@@ -195,9 +195,9 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 	var resp *http.Response
 	var err error
 	if timeout > time.Duration(0) {
-		resp, err = request.DoRequest(ctx, client, method, url, reqBody, &respBody, requestMod, request.Timeout(timeout, cancel))
+		resp, err = request.DoRequest(ctx, client, method, urlString, reqBody, &respBody, requestMod, request.Timeout(timeout, cancel))
 	} else {
-		resp, err = request.DoRequest(ctx, client, method, url, reqBody, &respBody, requestMod)
+		resp, err = request.DoRequest(ctx, client, method, urlString, reqBody, &respBody, requestMod)
 	}
 
 	fmt.Fprintln(os.Stderr, "[client] end request")

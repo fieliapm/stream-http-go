@@ -114,7 +114,7 @@ func Timeout(timeout time.Duration, timeoutFunc func()) Option {
 
 // function
 
-func DoRequest(ctx context.Context, client *http.Client, method string, url string, requestBody io.Reader, responseBody io.Writer, opts ...Option) (resp *http.Response, err error) {
+func DoRequest(ctx context.Context, client *http.Client, method string, urlString string, requestBody io.Reader, responseBody io.Writer, opts ...Option) (resp *http.Response, err error) {
 	conf := config{}
 	for _, opt := range opts {
 		opt(&conf)
@@ -132,7 +132,7 @@ func DoRequest(ctx context.Context, client *http.Client, method string, url stri
 	}
 
 	var req *http.Request
-	req, err = http.NewRequest(method, url, requestBody)
+	req, err = http.NewRequest(method, urlString, requestBody)
 	if err != nil {
 		return
 	}
