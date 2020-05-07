@@ -34,7 +34,7 @@ import (
 const (
 	testBodySize       int           = 512 * 1024 * 1024
 	testSucceedTimeout time.Duration = 1000 * time.Millisecond
-	testFailTimeout    time.Duration = 100 * time.Millisecond
+	testFailTimeout    time.Duration = 50 * time.Millisecond
 	testNoTimeout      time.Duration = 0
 
 	testResponseDelay   time.Duration = 200 * time.Millisecond
