@@ -67,18 +67,19 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 
 	fmt.Fprintln(os.Stderr, "[server] receiving request")
 	var respBody bytes.Buffer
-	switch req.Method {
-	case http.MethodHead:
-		fallthrough
-	case http.MethodGet:
-		fallthrough
-	case http.MethodDelete:
+
+	n, err := io.Copy(&respBody, req.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[server] receiving request failed at byte %d\n", n)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("Read Error at byte %d\n", n)))
+		return
+	}
+	fmt.Fprintf(os.Stderr, "[server] received request with length %d\n", respBody.Len())
+	if respBody.Len() <= 0 {
 		reqBody := bytes.NewReader(reqBytes)
-		io.Copy(&respBody, reqBody)
-		fmt.Fprintln(os.Stderr, "[server] received request")
-	default:
-		io.Copy(&respBody, req.Body)
-		fmt.Fprintf(os.Stderr, "[server] received request with length %d\n", respBody.Len())
+		n, err = io.Copy(&respBody, reqBody)
 	}
 
 	fmt.Fprintln(os.Stderr, "[server] handling request")
@@ -101,7 +102,10 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 				w.Header().Set("Content-Length", strconv.Itoa(respBody.Len()))
 			}
 			w.WriteHeader(http.StatusOK)
-			io.Copy(w, &respBody)
+			n, err = io.Copy(w, &respBody)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[server] sending response failed at byte %d\n", n)
+			}
 			time.Sleep(testResponseDelay)
 			return
 		}
@@ -151,7 +155,12 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-func testRequest(t *testing.T, timeout time.Duration, method string, withContentLength bool, expectError bool) {
+func testRequest(t *testing.T, timeout time.Duration, method string, withContentLength bool, expectError bool, ignoreResponseBody bool) {
+	defer func() {
+		fmt.Fprintln(os.Stderr, "[client] clean up")
+		runtime.GC()
+	}()
+
 	var reqBody io.Reader
 	switch method {
 	case http.MethodHead:
@@ -169,6 +178,8 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 	fmt.Fprintln(os.Stderr, "[client] begin request")
 
 	urlString := fmt.Sprintf("http://127.0.0.1:%d/ping-pong", testPort)
+
+	var opts []request.Option
 	requestMod := request.RequestMod(func(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer qawsedrftgyhujikolp")
 
@@ -182,15 +193,20 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 		query.Add("with_content_length", v)
 		req.URL.RawQuery = query.Encode()
 	})
+	opts = append(opts, requestMod)
+	if timeout > time.Duration(0) {
+		opts = append(opts, request.Timeout(timeout, cancel))
+	}
 
 	var respBody bytes.Buffer
+	var respBodyP io.Writer
+	if !ignoreResponseBody {
+		respBodyP = &respBody
+	}
+
 	var resp *http.Response
 	var err error
-	if timeout > time.Duration(0) {
-		resp, err = request.DoRequest(ctx, client, method, urlString, reqBody, &respBody, requestMod, request.Timeout(timeout, cancel))
-	} else {
-		resp, err = request.DoRequest(ctx, client, method, urlString, reqBody, &respBody, requestMod)
-	}
+	resp, err = request.DoRequest(ctx, client, method, urlString, reqBody, respBodyP, opts...)
 
 	fmt.Fprintln(os.Stderr, "[client] end request")
 
@@ -200,47 +216,57 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		var cmpResult int
-		if method == http.MethodHead {
-			cmpResult = bytes.Compare([]byte{}, respBody.Bytes())
-		} else {
-			cmpResult = bytes.Compare(reqBytes, respBody.Bytes())
+		if !ignoreResponseBody {
+			if method == http.MethodHead {
+				cmpResult = bytes.Compare([]byte{}, respBody.Bytes())
+			} else {
+				cmpResult = bytes.Compare(reqBytes, respBody.Bytes())
+			}
 		}
 		assert.Equal(t, 0, cmpResult)
 	}
 }
 
 func TestHeadWithContentLength(t *testing.T) {
-	testRequest(t, testSucceedTimeout, http.MethodHead, true, false)
+	testRequest(t, testSucceedTimeout, http.MethodHead, true, false, false)
 }
 
 func TestGetWithContentLength(t *testing.T) {
-	testRequest(t, testSucceedTimeout, http.MethodGet, true, false)
+	testRequest(t, testSucceedTimeout, http.MethodGet, true, false, false)
 }
 
 func TestGet(t *testing.T) {
-	testRequest(t, testSucceedTimeout, http.MethodGet, false, false)
+	testRequest(t, testSucceedTimeout, http.MethodGet, false, false, false)
+}
+
+func TestGetAndIgnoreResponseBody(t *testing.T) {
+	testRequest(t, testSucceedTimeout, http.MethodGet, false, false, true)
 }
 
 func TestGetWithFailTimeout(t *testing.T) {
-	testRequest(t, testFailTimeout, http.MethodGet, false, true)
+	testRequest(t, testFailTimeout, http.MethodGet, false, true, false)
 }
 
 func TestDelete(t *testing.T) {
-	testRequest(t, testSucceedTimeout, http.MethodDelete, false, false)
+	testRequest(t, testSucceedTimeout, http.MethodDelete, false, false, false)
 }
 
 func TestPostWithContentLength(t *testing.T) {
-	testRequest(t, testSucceedTimeout, http.MethodPost, true, false)
+	testRequest(t, testSucceedTimeout, http.MethodPost, true, false, false)
 }
 
 func TestPost(t *testing.T) {
-	testRequest(t, testSucceedTimeout, http.MethodPost, false, false)
+	testRequest(t, testSucceedTimeout, http.MethodPost, false, false, false)
+}
+
+func TestPostAndIgnoreResponseBody(t *testing.T) {
+	testRequest(t, testSucceedTimeout, http.MethodPost, false, false, true)
 }
 
 func TestPostWithFailTimeout(t *testing.T) {
-	testRequest(t, testFailTimeout, http.MethodPost, false, true)
+	testRequest(t, testFailTimeout, http.MethodPost, false, true, false)
 }
 
 func TestPostWithoutTimeout(t *testing.T) {
-	testRequest(t, testNoTimeout, http.MethodPost, false, false)
+	testRequest(t, testNoTimeout, http.MethodPost, false, false, false)
 }
