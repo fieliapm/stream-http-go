@@ -40,6 +40,8 @@ const (
 	testResponseDelay   time.Duration = 200 * time.Millisecond
 	testWaitServerDelay time.Duration = 250 * time.Millisecond
 	testPort            int           = 65535
+
+	testGCSleep time.Duration = 1500 * time.Millisecond
 )
 
 var (
@@ -62,7 +64,6 @@ func getAuthorization(req *http.Request) (authType string, authCredentials strin
 func handleFunc(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		fmt.Fprintln(os.Stderr, "[server] request complete")
-		runtime.GC()
 	}()
 
 	fmt.Fprintln(os.Stderr, "[server] receiving request")
@@ -83,6 +84,7 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 	}
 
 	fmt.Fprintln(os.Stderr, "[server] handling request")
+	runtime.GC()
 
 	authType, authCredentials := getAuthorization(req)
 	if authType == "Bearer" {
@@ -157,8 +159,7 @@ func TestMain(m *testing.M) {
 
 func testRequest(t *testing.T, timeout time.Duration, method string, withContentLength bool, expectError bool, ignoreResponseBody bool) {
 	defer func() {
-		fmt.Fprintln(os.Stderr, "[client] clean up")
-		runtime.GC()
+		fmt.Fprintln(os.Stderr, "[client] test complete")
 	}()
 
 	var reqBody io.Reader
@@ -227,46 +228,65 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 	}
 }
 
+func cleanUp() {
+	time.Sleep(testGCSleep)
+	fmt.Fprintln(os.Stderr, "[client] GC start")
+	runtime.GC()
+	fmt.Fprintln(os.Stderr, "[client] GC end")
+	time.Sleep(testGCSleep)
+}
+
 func TestHeadWithContentLength(t *testing.T) {
 	testRequest(t, testSucceedTimeout, http.MethodHead, true, false, false)
+	cleanUp()
 }
 
 func TestGetWithContentLength(t *testing.T) {
 	testRequest(t, testSucceedTimeout, http.MethodGet, true, false, false)
+	cleanUp()
 }
 
 func TestGet(t *testing.T) {
 	testRequest(t, testSucceedTimeout, http.MethodGet, false, false, false)
+	cleanUp()
 }
 
 func TestGetAndIgnoreResponseBody(t *testing.T) {
 	testRequest(t, testSucceedTimeout, http.MethodGet, false, false, true)
+	cleanUp()
 }
 
 func TestGetWithFailTimeout(t *testing.T) {
 	testRequest(t, testFailTimeout, http.MethodGet, false, true, false)
+	cleanUp()
 }
 
 func TestDelete(t *testing.T) {
 	testRequest(t, testSucceedTimeout, http.MethodDelete, false, false, false)
+	cleanUp()
 }
 
 func TestPostWithContentLength(t *testing.T) {
 	testRequest(t, testSucceedTimeout, http.MethodPost, true, false, false)
+	cleanUp()
 }
 
 func TestPost(t *testing.T) {
 	testRequest(t, testSucceedTimeout, http.MethodPost, false, false, false)
+	cleanUp()
 }
 
 func TestPostAndIgnoreResponseBody(t *testing.T) {
 	testRequest(t, testSucceedTimeout, http.MethodPost, false, false, true)
+	cleanUp()
 }
 
 func TestPostWithFailTimeout(t *testing.T) {
 	testRequest(t, testFailTimeout, http.MethodPost, false, true, false)
+	cleanUp()
 }
 
 func TestPostWithoutTimeout(t *testing.T) {
 	testRequest(t, testNoTimeout, http.MethodPost, false, false, false)
+	cleanUp()
 }
