@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	testBodySize       int           = 512 * 1024 * 1024
+	testBodySize       int           = 512 * (0x1 << 20)
 	testSucceedTimeout time.Duration = 1000 * time.Millisecond
 	testFailTimeout    time.Duration = 50 * time.Millisecond
 	testNoTimeout      time.Duration = 0
