@@ -219,8 +219,12 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 		err     error
 	}
 
-	timer := time.NewTimer(timeout)
 	copyResultChan := make(chan copyResult)
+
+	timer := time.NewTimer(timeout)
+	if !timer.Stop() {
+		<-timer.C
+	}
 
 	go func() {
 		nw, er := internalTimeoutCopy(dst, src, timer, timeout, writeTimeout)
