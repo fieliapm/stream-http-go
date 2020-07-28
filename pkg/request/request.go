@@ -13,6 +13,7 @@ package request
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -23,39 +24,52 @@ const (
 	chunkSize int = 0x1 << 16
 )
 
+var (
+	ErrorCopyTimeout = errors.New("copy timeout")
+)
+
 // timeout IO
 
-type TimeoutReader struct {
+type timeoutReader struct {
 	reader  io.Reader
 	timer   *time.Timer
 	timeout time.Duration
-	i       time.Time
 }
 
-func NewTimeoutReader(reader io.Reader, timer *time.Timer, timeout time.Duration) *TimeoutReader {
-	return &TimeoutReader{
+func newTimeoutReader(reader io.Reader, timer *time.Timer, timeout time.Duration) *timeoutReader {
+	return &timeoutReader{
 		reader:  reader,
 		timer:   timer,
 		timeout: timeout,
 	}
 }
 
-func (timeoutReader *TimeoutReader) Read(p []byte) (nRead int, err error) {
-	timeoutReader.timer.Stop()
-	nRead, err = timeoutReader.reader.Read(p)
-	timeoutReader.timer.Reset(timeoutReader.timeout)
+func (tr *timeoutReader) Read(p []byte) (nRead int, err error) {
+	tr.timer.Stop()
+	nRead, err = tr.reader.Read(p)
+	tr.timer.Reset(tr.timeout)
 	return
 }
 
-func TimeoutCopy(writer io.Writer, reader io.Reader, timer *time.Timer, timeout time.Duration) (written int64, err error) {
+func internalTimeoutCopy(dst io.Writer, src io.Reader, timer *time.Timer, timeout time.Duration, writeTimeout bool) (written int64, err error) {
 	readBuf := make([]byte, chunkSize)
 
 	for {
-		timer.Reset(timeout)
-		nr, er := reader.Read(readBuf)
-		timer.Stop()
+		if !writeTimeout {
+			timer.Reset(timeout)
+		}
+		nr, er := src.Read(readBuf)
+		if !writeTimeout {
+			timer.Stop()
+		}
 		if nr > 0 {
-			nw, ew := writer.Write(readBuf[0:nr])
+			if writeTimeout {
+				timer.Reset(timeout)
+			}
+			nw, ew := dst.Write(readBuf[0:nr])
+			if writeTimeout {
+				timer.Stop()
+			}
 			if nw > 0 {
 				written += int64(nw)
 			}
@@ -77,6 +91,36 @@ func TimeoutCopy(writer io.Writer, reader io.Reader, timer *time.Timer, timeout 
 	}
 
 	return
+}
+
+func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeout bool) (int64, error) {
+	type copyResult struct {
+		written int64
+		err     error
+	}
+
+	timer := time.NewTimer(timeout)
+	copyResultChan := make(chan copyResult)
+
+	go func() {
+		nw, er := internalTimeoutCopy(dst, src, timer, timeout, writeTimeout)
+		result := copyResult{
+			written: nw,
+			err:     er,
+		}
+		select {
+		case copyResultChan <- result:
+		default:
+		}
+		close(copyResultChan)
+	}()
+
+	select {
+	case <-timer.C:
+		return 0, ErrorCopyTimeout
+	case result := <-copyResultChan:
+		return result.written, result.err
+	}
 }
 
 // Option
@@ -119,7 +163,7 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 
 	if requestBody != nil {
 		if timer != nil {
-			requestBody = NewTimeoutReader(requestBody, timer, conf.timeout)
+			requestBody = newTimeoutReader(requestBody, timer, conf.timeout)
 		}
 	}
 
@@ -146,7 +190,7 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 	if responseBody != nil {
 		var nWritten int64
 		if timer != nil {
-			nWritten, err = TimeoutCopy(responseBody, resp.Body, timer, conf.timeout)
+			nWritten, err = internalTimeoutCopy(responseBody, resp.Body, timer, conf.timeout, false)
 		} else {
 			nWritten, err = io.Copy(responseBody, resp.Body)
 		}

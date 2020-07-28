@@ -37,6 +37,8 @@ const (
 	testFailTimeout    time.Duration = 50 * time.Millisecond
 	testNoTimeout      time.Duration = 0
 
+	testReadTimeout     time.Duration = 1000 * time.Millisecond
+	testWriteTimeout    time.Duration = 1000 * time.Millisecond
 	testResponseDelay   time.Duration = 200 * time.Millisecond
 	testWaitServerDelay time.Duration = 250 * time.Millisecond
 	testPort            int           = 65535
@@ -69,7 +71,7 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintln(os.Stderr, "[server] receiving request")
 	var respBody bytes.Buffer
 
-	n, err := io.Copy(&respBody, req.Body)
+	n, err := request.TimeoutCopy(&respBody, req.Body, testReadTimeout, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[server] receiving request failed at byte %d\n", n)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -104,7 +106,7 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 				w.Header().Set("Content-Length", strconv.Itoa(respBody.Len()))
 			}
 			w.WriteHeader(http.StatusOK)
-			n, err = io.Copy(w, &respBody)
+			n, err = request.TimeoutCopy(w, &respBody, testWriteTimeout, true)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[server] sending response failed at byte %d\n", n)
 			}
