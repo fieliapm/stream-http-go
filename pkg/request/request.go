@@ -205,8 +205,8 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 
 // TimeoutCopy copies from src to dst until EOF is reached on src, an error occurs, or reading/writing a chunk encounters provided timeout.
 //
-// While writeTimeout == false, it set timeout for reading a chunk.
-// While writeTimeout == true, it set timeout for writing a chunk.
+// While writeTimeout == false, it sets timeout for reading a chunk.
+// While writeTimeout == true, it sets timeout for writing a chunk.
 //
 // If it encounters timeout, it will return zero bytes copied and error ErrorCopyTimeout.
 // If it does not encounter any timeout, it returns the number of bytes copied and the first error encountered while copying, if any.
