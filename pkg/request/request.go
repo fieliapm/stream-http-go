@@ -93,37 +93,7 @@ func internalTimeoutCopy(dst io.Writer, src io.Reader, timer *time.Timer, timeou
 	return
 }
 
-func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeout bool) (int64, error) {
-	type copyResult struct {
-		written int64
-		err     error
-	}
-
-	timer := time.NewTimer(timeout)
-	copyResultChan := make(chan copyResult)
-
-	go func() {
-		nw, er := internalTimeoutCopy(dst, src, timer, timeout, writeTimeout)
-		result := copyResult{
-			written: nw,
-			err:     er,
-		}
-		select {
-		case copyResultChan <- result:
-		default:
-		}
-		close(copyResultChan)
-	}()
-
-	select {
-	case <-timer.C:
-		return 0, ErrorCopyTimeout
-	case result := <-copyResultChan:
-		return result.written, result.err
-	}
-}
-
-// Option
+// option
 
 type RequestModFunc func(*http.Request)
 
@@ -150,6 +120,21 @@ func Timeout(timeout time.Duration, timeoutFunc func()) Option {
 
 // function
 
+// DoRequest sends an HTTP request and returns an HTTP response, following policy (such as redirects, cookies, auth) as configured on the client.
+//
+// Its behaviour is same as Client.Do in standard library package net/http, except it writes response to provided responseBody before returned, and it will cancels request when sending/receiving a chunk encounters timeout.
+//
+// There are some options:
+// RequestMod(func(*http.Request)) sets request headers and query string parameters.
+// Timeout(time.Duration, func()) sets timeout duration and cancel function called while encountering timeout.
+//
+// An error is returned if caused by client policy (such as CheckRedirect), or failure to speak HTTP (such as a network connectivity problem). A non-2xx status code doesn't cause an error.
+//
+// If the returned error is nil, the Response will contain a non-nil Body which the user is expected to close. If the Body is not both read to EOF and closed, the Client's underlying RoundTripper (typically Transport) may not be able to re-use a persistent TCP connection to the server for a subsequent "keep-alive" request.
+//
+// The request Body, if non-nil, will be closed by the underlying Transport, even on errors.
+//
+// On error, any Response can be ignored. A non-nil Response with a non-nil error only occurs when CheckRedirect fails, and even then the returned Response.Body is already closed.
 func DoRequest(ctx context.Context, client *http.Client, method string, urlString string, requestBody io.Reader, responseBody io.Writer, opts ...Option) (resp *http.Response, err error) {
 	conf := config{}
 	for _, opt := range opts {
@@ -216,4 +201,44 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 	}
 
 	return
+}
+
+// TimeoutCopy copies from src to dst until EOF is reached on src, an error occurs, or reading/writing a chunk encounters provided timeout.
+//
+// While writeTimeout == false, it sets timeout for reading a chunk.
+// While writeTimeout == true, it sets timeout for writing a chunk.
+//
+// If it encounters timeout, it will return zero bytes copied and error ErrorCopyTimeout.
+// If it does not encounter any timeout, it returns the number of bytes copied and the first error encountered while copying, if any.
+//
+// A successful Copy returns err == nil, not err == EOF.
+// Because Copy is defined to read from src until EOF, it does not treat an EOF from Read as an error to be reported.
+func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeout bool) (int64, error) {
+	type copyResult struct {
+		written int64
+		err     error
+	}
+
+	timer := time.NewTimer(timeout)
+	copyResultChan := make(chan copyResult)
+
+	go func() {
+		nw, er := internalTimeoutCopy(dst, src, timer, timeout, writeTimeout)
+		result := copyResult{
+			written: nw,
+			err:     er,
+		}
+		select {
+		case copyResultChan <- result:
+		default:
+		}
+		close(copyResultChan)
+	}()
+
+	select {
+	case <-timer.C:
+		return 0, ErrorCopyTimeout
+	case result := <-copyResultChan:
+		return result.written, result.err
+	}
 }
