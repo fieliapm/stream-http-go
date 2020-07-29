@@ -214,12 +214,13 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 //
 // A successful Copy returns err == nil, not err == EOF.
 // Because Copy is defined to read from src until EOF, it does not treat an EOF from Read as an error to be reported.
-func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeout bool) (int64, error) {
+func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeout bool) (written int64, err error) {
 	type copyResult struct {
 		written int64
 		err     error
 	}
 
+	doneChan := make(chan struct{})
 	panicChan := make(chan interface{})
 	copyResultChan := make(chan copyResult)
 
@@ -234,7 +235,7 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 			if p != nil {
 				select {
 				case panicChan <- p:
-				default:
+				case <-doneChan:
 				}
 			}
 		}()
@@ -246,17 +247,21 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 		}
 		select {
 		case copyResultChan <- result:
-		default:
+		case <-doneChan:
 		}
-		close(copyResultChan)
 	}()
 
 	select {
 	case p := <-panicChan:
 		panic(p)
 	case result := <-copyResultChan:
-		return result.written, result.err
+		written = result.written
+		err = result.err
 	case <-timer.C:
-		return 0, ErrorCopyTimeout
+		written = 0
+		err = ErrorCopyTimeout
 	}
+	close(doneChan)
+
+	return
 }
