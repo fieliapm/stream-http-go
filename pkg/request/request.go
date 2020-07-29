@@ -100,7 +100,6 @@ type RequestModFunc func(*http.Request)
 type config struct {
 	requestModFunc RequestModFunc
 	timeout        time.Duration
-	timeoutFunc    func()
 }
 
 type Option func(conf *config)
@@ -111,10 +110,9 @@ func RequestMod(requestModFunc RequestModFunc) Option {
 	}
 }
 
-func Timeout(timeout time.Duration, timeoutFunc func()) Option {
+func Timeout(timeout time.Duration) Option {
 	return func(conf *config) {
 		conf.timeout = timeout
-		conf.timeoutFunc = timeoutFunc
 	}
 }
 
@@ -122,11 +120,11 @@ func Timeout(timeout time.Duration, timeoutFunc func()) Option {
 
 // DoRequest sends an HTTP request and returns an HTTP response, following policy (such as redirects, cookies, auth) as configured on the client.
 //
-// Its behaviour is same as Client.Do in standard library package net/http, except it writes response to provided responseBody before returned, and it will cancels request when sending/receiving a chunk encounters timeout.
+// Its behaviour is same as Client.Do in standard library package net/http, except it writes response to provided responseBody before returned, and it will cancel request when sending/receiving a chunk encounters timeout.
 //
 // There are some options:
 // RequestMod(func(*http.Request)) sets request headers and query string parameters.
-// Timeout(time.Duration, func()) sets timeout duration and cancel function called while encountering timeout.
+// Timeout(time.Duration) sets timeout.
 //
 // An error is returned if caused by client policy (such as CheckRedirect), or failure to speak HTTP (such as a network connectivity problem). A non-2xx status code doesn't cause an error.
 //
@@ -141,9 +139,12 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 		opt(&conf)
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var timer *time.Timer
 	if conf.timeout > time.Duration(0) {
-		timer = time.AfterFunc(conf.timeout, conf.timeoutFunc)
+		timer = time.AfterFunc(conf.timeout, cancel)
 	}
 
 	if requestBody != nil {

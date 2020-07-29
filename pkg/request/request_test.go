@@ -173,8 +173,7 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 		reqBody = bytes.NewReader(reqBytes)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 
 	client := http.DefaultClient
 
@@ -198,7 +197,7 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 	})
 	opts = append(opts, requestMod)
 	if timeout > time.Duration(0) {
-		opts = append(opts, request.Timeout(timeout, cancel))
+		opts = append(opts, request.Timeout(timeout))
 	}
 
 	var respBody bytes.Buffer
