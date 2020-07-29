@@ -220,6 +220,7 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 		err     error
 	}
 
+	panicChan := make(chan interface{})
 	copyResultChan := make(chan copyResult)
 
 	timer := time.NewTimer(timeout)
@@ -228,6 +229,16 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 	}
 
 	go func() {
+		defer func() {
+			p := recover()
+			if p != nil {
+				select {
+				case panicChan <- p:
+				default:
+				}
+			}
+		}()
+
 		nw, er := internalTimeoutCopy(dst, src, timer, timeout, writeTimeout)
 		result := copyResult{
 			written: nw,
@@ -241,9 +252,11 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 	}()
 
 	select {
-	case <-timer.C:
-		return 0, ErrorCopyTimeout
+	case p := <-panicChan:
+		panic(p)
 	case result := <-copyResultChan:
 		return result.written, result.err
+	case <-timer.C:
+		return 0, ErrorCopyTimeout
 	}
 }
