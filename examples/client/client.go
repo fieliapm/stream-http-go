@@ -23,7 +23,6 @@ import (
 
 func playRequest() error {
 	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
 
 	client := http.DefaultClient
 
@@ -35,7 +34,7 @@ func playRequest() error {
 		query.Add("param", "pvalue")
 		req.URL.RawQuery = query.Encode()
 	})
-	requestTimeout := request.Timeout(500*time.Millisecond, cancel)
+	requestTimeout := request.Timeout(500 * time.Millisecond)
 
 	reqBody := bytes.NewBuffer([]byte("form=fvalue"))
 	var respBody bytes.Buffer
