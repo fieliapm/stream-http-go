@@ -221,9 +221,7 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 	}
 
 	doneChan := make(chan struct{})
-	defer func() {
-		close(doneChan)
-	}()
+	defer close(doneChan)
 
 	panicChan := make(chan interface{})
 	copyResultChan := make(chan copyResult)
