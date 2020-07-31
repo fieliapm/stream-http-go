@@ -9,7 +9,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-package request_test
+package stream_http_test
 
 import (
 	"bytes"
@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fieliapm/stream-http-go/pkg/request"
+	"github.com/fieliapm/stream-http-go/pkg/stream_http"
 )
 
 const (
@@ -71,7 +71,7 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintln(os.Stderr, "[server] receiving request")
 	var respBody bytes.Buffer
 
-	n, err := request.TimeoutCopy(&respBody, req.Body, testReadTimeout, false)
+	n, err := stream_http.TimeoutCopy(&respBody, req.Body, testReadTimeout, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[server] receiving request failed at byte %d\n", n)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -106,7 +106,7 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 				w.Header().Set("Content-Length", strconv.Itoa(respBody.Len()))
 			}
 			w.WriteHeader(http.StatusOK)
-			n, err = request.TimeoutCopy(w, &respBody, testWriteTimeout, true)
+			n, err = stream_http.TimeoutCopy(w, &respBody, testWriteTimeout, true)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[server] sending response failed at byte %d\n", n)
 			}
@@ -181,8 +181,8 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 
 	urlString := fmt.Sprintf("http://127.0.0.1:%d/ping-pong", testPort)
 
-	var opts []request.Option
-	requestMod := request.RequestMod(func(req *http.Request) {
+	var opts []stream_http.Option
+	requestMod := stream_http.RequestMod(func(req *http.Request) {
 		req.Header.Set("Authorization", "Bearer qawsedrftgyhujikolp")
 
 		query := req.URL.Query()
@@ -197,7 +197,7 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 	})
 	opts = append(opts, requestMod)
 	if timeout > time.Duration(0) {
-		opts = append(opts, request.Timeout(timeout))
+		opts = append(opts, stream_http.Timeout(timeout))
 	}
 
 	var respBody bytes.Buffer
@@ -208,7 +208,7 @@ func testRequest(t *testing.T, timeout time.Duration, method string, withContent
 
 	var resp *http.Response
 	var err error
-	resp, err = request.DoRequest(ctx, client, method, urlString, reqBody, respBodyP, opts...)
+	resp, err = stream_http.DoRequest(ctx, client, method, urlString, reqBody, respBodyP, opts...)
 
 	fmt.Fprintln(os.Stderr, "[client] end request")
 

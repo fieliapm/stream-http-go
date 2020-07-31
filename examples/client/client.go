@@ -18,7 +18,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fieliapm/stream-http-go/pkg/request"
+	"github.com/fieliapm/stream-http-go/pkg/stream_http"
 )
 
 func playRequest() error {
@@ -26,7 +26,7 @@ func playRequest() error {
 
 	client := http.DefaultClient
 
-	requestMod := request.RequestMod(func(req *http.Request) {
+	requestMod := stream_http.RequestMod(func(req *http.Request) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Authorization", "Bearer qawsedrftgyhujikolp")
 
@@ -34,13 +34,13 @@ func playRequest() error {
 		query.Add("param", "pvalue")
 		req.URL.RawQuery = query.Encode()
 	})
-	requestTimeout := request.Timeout(500 * time.Millisecond)
+	requestTimeout := stream_http.Timeout(500 * time.Millisecond)
 
 	reqBody := bytes.NewBuffer([]byte("form=fvalue"))
 	var respBody bytes.Buffer
 
-	resp, err := request.DoRequest(ctx, client, http.MethodPost, "http://httpbin.org/anything", reqBody, &respBody, requestMod, requestTimeout)
-	//resp, err := request.DoRequest(ctx, client, http.MethodGet, "http://httpbin.org/status/401", nil, &respBody, requestMod, requestTimeout)
+	resp, err := stream_http.DoRequest(ctx, client, http.MethodPost, "http://httpbin.org/anything", reqBody, &respBody, requestMod, requestTimeout)
+	//resp, err := stream_http.DoRequest(ctx, client, http.MethodGet, "http://httpbin.org/status/401", nil, &respBody, requestMod, requestTimeout)
 	if err != nil {
 		return err
 	}
