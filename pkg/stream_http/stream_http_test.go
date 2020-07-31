@@ -71,7 +71,7 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintln(os.Stderr, "[server] receiving request")
 	var respBody bytes.Buffer
 
-	n, err := stream_http.TimeoutCopy(&respBody, req.Body, testReadTimeout, false)
+	n, err := stream_http.TimeoutCopy(&respBody, req.Body, time.Duration(-1), testReadTimeout)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[server] receiving request failed at byte %d\n", n)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -106,7 +106,7 @@ func handleFunc(w http.ResponseWriter, req *http.Request) {
 				w.Header().Set("Content-Length", strconv.Itoa(respBody.Len()))
 			}
 			w.WriteHeader(http.StatusOK)
-			n, err = stream_http.TimeoutCopy(w, &respBody, testWriteTimeout, true)
+			n, err = stream_http.TimeoutCopy(w, &respBody, testWriteTimeout, time.Duration(-1))
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[server] sending response failed at byte %d\n", n)
 			}

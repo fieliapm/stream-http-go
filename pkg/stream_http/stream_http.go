@@ -51,23 +51,27 @@ func (tr *timeoutReader) Read(p []byte) (nRead int, err error) {
 	return
 }
 
-func internalTimeoutCopy(dst io.Writer, src io.Reader, timer *time.Timer, timeout time.Duration, writeTimeout bool) (written int64, err error) {
+func isValidTimeout(timeout time.Duration) bool {
+	return timeout > time.Duration(0)
+}
+
+func internalTimeoutCopy(dst io.Writer, src io.Reader, timer *time.Timer, dstWriteTimeout time.Duration, srcReadTimeout time.Duration) (written int64, err error) {
 	readBuf := make([]byte, chunkSize)
 
 	for {
-		if !writeTimeout {
-			timer.Reset(timeout)
+		if isValidTimeout(srcReadTimeout) {
+			timer.Reset(srcReadTimeout)
 		}
 		nr, er := src.Read(readBuf)
-		if !writeTimeout {
+		if isValidTimeout(srcReadTimeout) {
 			timer.Stop()
 		}
 		if nr > 0 {
-			if writeTimeout {
-				timer.Reset(timeout)
+			if isValidTimeout(dstWriteTimeout) {
+				timer.Reset(dstWriteTimeout)
 			}
 			nw, ew := dst.Write(readBuf[0:nr])
-			if writeTimeout {
+			if isValidTimeout(dstWriteTimeout) {
 				timer.Stop()
 			}
 			if nw > 0 {
@@ -143,7 +147,7 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 	defer cancel()
 
 	var timer *time.Timer
-	if conf.timeout > time.Duration(0) {
+	if isValidTimeout(conf.timeout) {
 		timer = time.AfterFunc(conf.timeout, cancel)
 	}
 
@@ -176,7 +180,7 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 	if responseBody != nil {
 		var nWritten int64
 		if timer != nil {
-			nWritten, err = internalTimeoutCopy(responseBody, resp.Body, timer, conf.timeout, false)
+			nWritten, err = internalTimeoutCopy(responseBody, resp.Body, timer, time.Duration(-1), conf.timeout)
 		} else {
 			nWritten, err = io.Copy(responseBody, resp.Body)
 		}
@@ -204,17 +208,17 @@ func DoRequest(ctx context.Context, client *http.Client, method string, urlStrin
 	return
 }
 
-// TimeoutCopy copies from src to dst until EOF is reached on src, an error occurs, or reading/writing a chunk encounters provided timeout.
+// TimeoutCopy copies from src to dst until EOF is reached on src, an error occurs, or reading/writing a chunk encounters each corresponding timeout.
 //
-// While writeTimeout == false, it sets timeout for reading a chunk.
-// While writeTimeout == true, it sets timeout for writing a chunk.
+// when srcReadTimeout > 0, it sets timeout for reading a chunk from src.
+// when dstWriteTimeout > 0, it sets timeout for writing a chunk to dst.
 //
 // If it encounters timeout, it will return zero bytes copied and error ErrorCopyTimeout.
 // If it does not encounter any timeout, it returns the number of bytes copied and the first error encountered while copying, if any.
 //
 // A successful Copy returns err == nil, not err == EOF.
 // Because Copy is defined to read from src until EOF, it does not treat an EOF from Read as an error to be reported.
-func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeout bool) (written int64, err error) {
+func TimeoutCopy(dst io.Writer, src io.Reader, dstWriteTimeout time.Duration, srcReadTimeout time.Duration) (written int64, err error) {
 	type copyResult struct {
 		written int64
 		err     error
@@ -226,7 +230,7 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 	panicChan := make(chan interface{})
 	copyResultChan := make(chan copyResult)
 
-	timer := time.NewTimer(timeout)
+	timer := time.NewTimer(time.Duration(0))
 	if !timer.Stop() {
 		<-timer.C
 	}
@@ -242,7 +246,7 @@ func TimeoutCopy(dst io.Writer, src io.Reader, timeout time.Duration, writeTimeo
 			}
 		}()
 
-		nw, er := internalTimeoutCopy(dst, src, timer, timeout, writeTimeout)
+		nw, er := internalTimeoutCopy(dst, src, timer, dstWriteTimeout, srcReadTimeout)
 		result := copyResult{
 			written: nw,
 			err:     er,
